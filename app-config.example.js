@@ -1,4 +1,5 @@
 window.LABCONTROL_CONFIG = {
   supabaseUrl: "https://TU-PROYECTO.supabase.co",
-  supabasePublishableKey: "sb_publishable_TU_LLAVE_PUBLICA"
+  supabasePublishableKey: "sb_publishable_TU_LLAVE_PUBLICA",
+  authRedirectUrl: "https://tu-app.netlify.app/"
 };
