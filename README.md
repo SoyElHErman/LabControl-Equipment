@@ -26,6 +26,16 @@ Los usuarios siguientes quedan como `Visualizador`, salvo que el administrador h
 - `Editor operativo`: equipos, planes y bitácora, sin gestión de usuarios.
 - `Solo visualización`: consulta sin edición.
 
+## Build local
+
+El archivo `app.js` se reconstruye desde fragmentos comprimidos guardados en `src/`.
+
+```bash
+node build-app.js
+```
+
+La carpeta publicada queda en `dist/`.
+
 ## Despliegue Netlify
 
-Publica esta carpeta como sitio estático. El archivo `netlify.toml` ya define esta carpeta como directorio publicado.
+Netlify usa `netlify.toml`, ejecuta `node build-app.js` y publica `dist/`.

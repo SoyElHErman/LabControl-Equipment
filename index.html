@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LabControl Herman Gajardo - Gestión de Equipos</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%23e41d2d'/%3E%3Ctext x='32' y='39' text-anchor='middle' font-family='Arial,sans-serif' font-size='22' font-weight='800' fill='white'%3ELH%3C/text%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="styles.css?v=20260720-1" />
+  </head>
+  <body>
+    <section id="authRoot" class="auth-root" aria-live="polite"></section>
+
+    <div class="app-shell is-hidden" id="appShell">
+      <aside class="sidebar" aria-label="Navegación principal">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true">LH</div>
+          <div>
+            <strong>LabControl Herman Gajardo</strong>
+            <span>Gestión de Equipos</span>
+          </div>
+        </div>
+
+        <nav class="nav-list">
+          <button class="nav-item active" data-view="dashboard" type="button"></button>
+          <button class="nav-item" data-view="equipos" type="button"></button>
+          <button class="nav-item" data-view="calendario" type="button"></button>
+          <button class="nav-item" data-view="bitacora" type="button"></button>
+          <button class="nav-item" data-view="costos" type="button"></button>
+          <button class="nav-item" data-view="usuarios" type="button"></button>
+          <button class="nav-item" data-view="configuracion" type="button"></button>
+        </nav>
+
+        <div class="sidebar-status">
+          <span class="status-dot"></span>
+          <div>
+            <strong>Sistema activo</strong>
+            <span>Datos protegidos con Supabase</span>
+          </div>
+        </div>
+      </aside>
+
+      <main class="main-area">
+        <header class="topbar">
+          <div class="page-title">
+            <span class="eyebrow">Sistema integral</span>
+            <h1 id="viewTitle">Dashboard de laboratorio</h1>
+          </div>
+          <div class="top-actions">
+            <label class="user-switcher">
+              <span>Sesión activa</span>
+              <select id="activeUserSelect"></select>
+            </label>
+            <button id="exportAllBtn" class="icon-button secondary" type="button" title="Exportar datos"></button>
+            <button id="resetDemoBtn" class="icon-button danger-soft" type="button" title="Restaurar demo"></button>
+            <button id="signOutBtn" class="icon-button secondary" type="button" title="Cerrar sesión"></button>
+          </div>
+        </header>
+
+        <section id="dashboardView" class="view active-view" aria-labelledby="viewTitle"></section>
+        <section id="equiposView" class="view" aria-labelledby="viewTitle"></section>
+        <section id="calendarioView" class="view" aria-labelledby="viewTitle"></section>
+        <section id="bitacoraView" class="view" aria-labelledby="viewTitle"></section>
+        <section id="costosView" class="view" aria-labelledby="viewTitle"></section>
+        <section id="usuariosView" class="view" aria-labelledby="viewTitle"></section>
+        <section id="configuracionView" class="view" aria-labelledby="viewTitle"></section>
+      </main>
+    </div>
+
+    <div id="modalRoot" class="modal-root" aria-hidden="true"></div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+    <script src="app-config.js?v=20260720-1"></script>
+    <script src="app.js?v=20260720-1"></script>
+  </body>
+</html>
