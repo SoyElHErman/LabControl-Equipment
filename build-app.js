@@ -10,10 +10,7 @@ const bundleParts = [
   "app.js.gz.b64.part-00",
   "app.js.gz.b64.part-01",
   "app.js.gz.b64.part-02",
-  "app.js.gz.b64.part-03",
-  "app.js.gz.b64.part-04",
-  "app.js.gz.b64.part-05",
-  "app.js.gz.b64.part-06"
+  "app.js.gz.b64.part-03"
 ];
 
 function patchAuthRedirect(source) {
