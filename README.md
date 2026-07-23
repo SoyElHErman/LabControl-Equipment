@@ -1,4 +1,4 @@
-# LabControl Herman Gajardo - Gestión de Equipos
+# LabControl-EquiposHG
 
 App web estática para gestión de equipos de laboratorio con sesiones Supabase, roles y despliegue en Netlify.
 
@@ -26,16 +26,6 @@ Los usuarios siguientes quedan como `Visualizador`, salvo que el administrador h
 - `Editor operativo`: equipos, planes y bitácora, sin gestión de usuarios.
 - `Solo visualización`: consulta sin edición.
 
-## Build local
-
-El archivo `app.js` se reconstruye desde fragmentos comprimidos guardados en `src/`.
-
-```bash
-node build-app.js
-```
-
-La carpeta publicada queda en `dist/`.
-
 ## Despliegue Netlify
 
-Netlify usa `netlify.toml`, ejecuta `node build-app.js` y publica `dist/`.
+Publica esta carpeta como sitio estático. El archivo `netlify.toml` ya define esta carpeta como directorio publicado.
