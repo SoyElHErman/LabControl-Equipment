@@ -6,12 +6,6 @@ const root = __dirname;
 const dist = path.join(root, "dist");
 const sourceDir = path.join(root, "src");
 const staticFiles = ["index.html", "styles.css", "app-config.js", "app-config.example.js"];
-const bundleParts = [
-  "app.js.gz.b64.part-00",
-  "app.js.gz.b64.part-01",
-  "app.js.gz.b64.part-02",
-  "app.js.gz.b64.part-03"
-];
 
 function patchAuthRedirect(source) {
   let patched = source;
@@ -24,7 +18,7 @@ function patchAuthRedirect(source) {
 function getAuthRedirectUrl() {
   if (CONFIG.authRedirectUrl) return CONFIG.authRedirectUrl;
   if (window.location.protocol === "http:" || window.location.protocol === "https:") {
-    return \`${window.location.origin}${window.location.pathname}\`;
+    return \`\${window.location.origin}\${window.location.pathname}\`;
   }
   return undefined;
 }
@@ -45,6 +39,25 @@ function getAuthRedirectUrl() {
   return patched;
 }
 
+function readAppSource() {
+  const appPath = path.join(root, "app.js");
+  if (fs.existsSync(appPath)) {
+    return fs.readFileSync(appPath, "utf8");
+  }
+
+  const bundleParts = fs.readdirSync(sourceDir)
+    .filter((file) => file.startsWith("app.js.gz.b64.part-"))
+    .sort();
+  if (!bundleParts.length) {
+    throw new Error("No app.js or compressed app bundle parts were found.");
+  }
+
+  const encodedBundle = bundleParts
+    .map((file) => fs.readFileSync(path.join(sourceDir, file), "utf8").trim())
+    .join("");
+  return zlib.gunzipSync(Buffer.from(encodedBundle, "base64")).toString("utf8");
+}
+
 fs.rmSync(dist, { recursive: true, force: true });
 fs.mkdirSync(dist, { recursive: true });
 
@@ -52,10 +65,12 @@ for (const file of staticFiles) {
   fs.copyFileSync(path.join(root, file), path.join(dist, file));
 }
 
-const encodedBundle = bundleParts
-  .map((file) => fs.readFileSync(path.join(sourceDir, file), "utf8").trim())
-  .join("");
-const appSource = zlib.gunzipSync(Buffer.from(encodedBundle, "base64")).toString("utf8");
+const assetsDir = path.join(root, "assets");
+if (fs.existsSync(assetsDir)) {
+  fs.cpSync(assetsDir, path.join(dist, "assets"), { recursive: true });
+}
+
+const appSource = readAppSource();
 const patchedAppSource = patchAuthRedirect(appSource);
 fs.writeFileSync(path.join(dist, "app.js"), patchedAppSource);
 
