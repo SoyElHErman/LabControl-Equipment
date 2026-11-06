@@ -1350,6 +1350,10 @@ button.kpi-card.executive:hover {
   min-width: 0;
 }
 
+.control[hidden] {
+  display: none;
+}
+
 .control label,
 .inline-field label {
   color: var(--muted);

@@ -857,7 +857,8 @@ function rowToEvent(row) {
     result: row.result,
     cost: Number(row.cost || 0),
     provider: row.provider || "",
-    notes: row.notes || ""
+    notes: row.notes || "",
+    planType: row.plan_type || ""
   };
 }
 
@@ -911,7 +912,8 @@ function eventToRow(event) {
     result: event.result,
     cost: Number(event.cost || 0),
     provider: event.provider || "",
-    notes: event.notes || ""
+    notes: event.notes || "",
+    plan_type: event.planType || null
   };
 }
 
@@ -1229,7 +1231,7 @@ function getMetrics() {
   const annualBudget = Number(budget.annualBudget || 0);
   const annualizedForecast = annualizedForecastForEquipments(activeEquipments);
   const ytdSpent = state.events
-    .filter((event) => activeIds.has(event.equipmentId) && parseLocalDate(event.date)?.getFullYear() === budgetYear)
+    .filter((event) => !isPlannedTask(event) && activeIds.has(event.equipmentId) && parseLocalDate(event.date)?.getFullYear() === budgetYear)
     .reduce((sum, event) => sum + Number(event.cost || 0), 0);
   const overdue = tasks.filter((item) => item.days < 0).length;
   const due60 = tasks.filter((item) => item.days >= 0 && item.days <= 60).length;
@@ -1331,7 +1333,7 @@ function isScheduledServicePlan(plan) {
 
 function maintenanceEventsFor(equipment, year = null) {
   return state.events
-    .filter((event) => event.equipmentId === equipment.id && isMaintenanceService(event.type))
+    .filter((event) => !isPlannedTask(event) && event.equipmentId === equipment.id && isMaintenanceService(event.planType || event.type))
     .filter((event) => year === null || parseLocalDate(event.date)?.getFullYear() === Number(year))
     .sort((a, b) => parseLocalDate(b.date) - parseLocalDate(a.date));
 }
@@ -1467,7 +1469,7 @@ function projectedMaintenanceCost(equipments, year) {
 
 function maintenanceCostHistory(equipments = state.equipments) {
   const ids = new Set(equipments.map((equipment) => equipment.id));
-  const grouped = groupBy(state.events.filter((event) => ids.has(event.equipmentId) && isMaintenanceService(event.type)), (event) => String(parseLocalDate(event.date)?.getFullYear() || "Sin fecha"));
+  const grouped = groupBy(state.events.filter((event) => !isPlannedTask(event) && ids.has(event.equipmentId) && isMaintenanceService(event.planType || event.type)), (event) => String(parseLocalDate(event.date)?.getFullYear() || "Sin fecha"));
   return Object.entries(grouped).map(([year, events]) => ({
     year,
     events: events.length,
@@ -1477,12 +1479,18 @@ function maintenanceCostHistory(equipments = state.equipments) {
   })).sort((a, b) => String(a.year).localeCompare(String(b.year)));
 }
 
+function isPlannedTask(event) {
+  return event?.result === "Planificado";
+}
+
 function isFailureEvent(event) {
+  if (isPlannedTask(event)) return false;
   const text = `${event.type || ""} ${event.result || ""} ${event.notes || ""}`.toLowerCase();
   return /falla|incidencia|reparación correctiva|reparacion correctiva|no conforme|observación|observacion|en proceso/.test(text);
 }
 
 function isRepairEvent(event) {
+  if (isPlannedTask(event)) return false;
   const text = `${event.type || ""} ${event.result || ""}`.toLowerCase();
   return /repar|mant|correctiva|conforme/.test(text);
 }
@@ -1553,12 +1561,12 @@ function dashboardContext() {
   const activeEquipments = equipments.filter(isActiveEquipment);
   const activeEquipmentIds = new Set(activeEquipments.map((equipment) => equipment.id));
   const events = state.events.filter((event) =>
-    equipmentIds.has(event.equipmentId)
+    !isPlannedTask(event) && equipmentIds.has(event.equipmentId)
     && isWithinRange(event.date, range)
     && (filters.provider === "Todos" || event.provider === filters.provider)
   );
   const previousEvents = state.events.filter((event) =>
-    equipmentIds.has(event.equipmentId)
+    !isPlannedTask(event) && equipmentIds.has(event.equipmentId)
     && isWithinRange(event.date, previousRange)
     && (filters.provider === "Todos" || event.provider === filters.provider)
   );
@@ -1679,7 +1687,7 @@ function dashboardMetrics(context = dashboardContext()) {
 
 function equipmentHealth(equipment) {
   const now = todayDate();
-  const events12 = state.events.filter((event) => event.equipmentId === equipment.id && isWithinRange(event.date, { start: new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()), end: now }));
+  const events12 = state.events.filter((event) => !isPlannedTask(event) && event.equipmentId === equipment.id && isWithinRange(event.date, { start: new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()), end: now }));
   const failures12 = events12.filter(isFailureEvent).length;
   const cost12 = events12.reduce((sum, event) => sum + Number(event.cost || 0), 0);
   const downtimeValues = events12.map(downtimeHoursForEvent).filter((value) => value !== null);
@@ -3067,7 +3075,7 @@ function renderEquipmentRow(equipment) {
           <button class="table-action secondary" type="button" title="Ver detalle" data-action="select-equipment" data-id="${escapeHtml(equipment.id)}">${icon("eye")}</button>
           <button class="table-action secondary" type="button" title="Ver bitácora" data-action="view-equipment-events" data-id="${escapeHtml(equipment.id)}">${icon("book")}</button>
           ${editable ? `<button class="table-action secondary" type="button" title="Editar equipo" data-action="edit-equipment" data-id="${escapeHtml(equipment.id)}">${icon("edit")}</button>` : ""}
-          ${editable ? `<button class="table-action" type="button" title="Registrar evento" data-action="add-event" data-id="${escapeHtml(equipment.id)}">${icon("plus")}</button>` : ""}
+          ${editable ? `<button class="table-action" type="button" title="Agregar tarea" data-action="add-event" data-id="${escapeHtml(equipment.id)}">${icon("plus")}</button>` : ""}
         </div>
       </td>
     </tr>
@@ -3098,8 +3106,10 @@ function openEquipmentDetailModal(equipmentId) {
 
 function renderEquipmentDetail(equipment) {
   const editable = canEditData();
+  const pending = state.events.filter((event) => event.equipmentId === equipment.id && isPlannedTask(event))
+    .sort((a, b) => a.date.localeCompare(b.date));
   const events = state.events
-    .filter((event) => event.equipmentId === equipment.id)
+    .filter((event) => event.equipmentId === equipment.id && !isPlannedTask(event))
     .sort((a, b) => parseLocalDate(b.date) - parseLocalDate(a.date))
     .slice(0, 6);
   const health = equipmentHealth(equipment);
@@ -3150,7 +3160,7 @@ function renderEquipmentDetail(equipment) {
             ${equipment.notes ? `<div class="equipment-notes">${escapeHtml(equipment.notes)}</div>` : ""}
             <div class="table-actions equipment-detail-actions">
               ${editable ? `<button class="action-button secondary" type="button" data-action="edit-equipment" data-id="${escapeHtml(equipment.id)}">${icon("edit")} Editar ficha</button>` : ""}
-              ${editable ? `<button class="action-button" type="button" data-action="add-event" data-id="${escapeHtml(equipment.id)}">${icon("plus")} Registrar evento</button>` : `<span class="badge neutral">Modo lectura</span>`}
+              ${editable ? `<button class="action-button" type="button" data-action="add-event" data-id="${escapeHtml(equipment.id)}">${icon("plus")} Agregar tarea</button>` : `<span class="badge neutral">Modo lectura</span>`}
               <button class="action-button secondary" type="button" data-action="view-equipment-events" data-id="${escapeHtml(equipment.id)}">${icon("book")} Ver bitácora completa</button>
             </div>
           </div>
@@ -3173,7 +3183,7 @@ function renderEquipmentDetail(equipment) {
                     ${!isActiveEquipment(equipment) ? `<div class="item-meta"><span class="badge neutral">Fuera de agenda activa</span></div>` : ""}
                   </div>
                   <div class="plan-actions">
-                    <span class="nowrap">${exempt ? "No aplica" : formatDate(plan.nextDue)}</span>
+                    <span class="nowrap">${exempt ? "No aplica" : plan.nextDue ? `Vence: ${formatDate(plan.nextDue)}` : "Sin vencimiento"}</span>
                     ${editable ? `<button class="table-action secondary" type="button" title="Editar servicio" data-action="edit-plan" data-id="${escapeHtml(equipment.id)}" data-type="${escapeHtml(plan.type)}">${icon("edit")}</button>` : ""}
                     ${editable ? `<button class="table-action danger-soft" type="button" title="Eliminar servicio" data-action="delete-plan" data-id="${escapeHtml(equipment.id)}" data-type="${escapeHtml(plan.type)}">${icon("trash")}</button>` : ""}
                   </div>
@@ -3183,6 +3193,8 @@ function renderEquipmentDetail(equipment) {
           </div>
 
           <div class="plan-stack">
+            ${pending.length ? `<div class="section-title"><h2>${icon("calendar")} Tareas planificadas</h2></div>
+              ${pending.map(renderCompactEvent).join("")}` : ""}
             <div class="section-title">
               <h2>${icon("book")} Bitácora reciente</h2>
               <button class="action-button compact secondary" type="button" data-action="view-equipment-events" data-id="${escapeHtml(equipment.id)}">${icon("eye")} Ver todo</button>
@@ -3296,7 +3308,7 @@ function renderCompactEvent(event) {
         </div>
         ${editable ? `
           <div class="table-actions">
-            <button class="table-action secondary" type="button" title="Editar evento" data-action="edit-event" data-id="${escapeHtml(event.id)}">${icon("edit")}</button>
+            <button class="${isPlannedTask(event) ? "action-button compact" : "table-action"} secondary" type="button" title="${isPlannedTask(event) ? "Editar o completar tarea" : "Editar tarea"}" data-action="edit-event" data-id="${escapeHtml(event.id)}">${icon("edit")}${isPlannedTask(event) ? " Editar o completar" : ""}</button>
             <button class="table-action danger-soft" type="button" title="Eliminar evento" data-action="delete-event" data-id="${escapeHtml(event.id)}">${icon("trash")}</button>
           </div>
         ` : ""}
@@ -3330,7 +3342,7 @@ function renderQuarterCalendar(tasks) {
       <div class="calendar-dashboard-head">
       <div>
         <span class="eyebrow">Próximos 3 meses</span>
-        <h2>Eventos planificados</h2>
+        <h2>Tareas planificadas y vencimientos</h2>
         <p>${formatMonthLabel(months[0])} - ${formatMonthLabel(months[2])} · Solo flota activa</p>
         </div>
         <div class="calendar-summary">
@@ -3392,7 +3404,7 @@ function renderCalendarMonth(monthDate, tasksByDate, editable) {
 }
 
 function renderCalendarTaskChip(task, editable) {
-  const action = editable ? "edit-plan" : "view-equipment-events";
+  const action = editable ? (task.event ? "edit-event" : "add-event") : "select-equipment";
   const assetLabel = task.equipment.assetTag.replace(/^LAB-/, "");
   return `
     <button
@@ -3400,7 +3412,7 @@ function renderCalendarTaskChip(task, editable) {
       type="button"
       title="${escapeHtml(`${task.equipment.name} · ${task.plan.type}`)}"
       data-action="${action}"
-      data-id="${escapeHtml(task.equipment.id)}"
+      data-id="${escapeHtml(editable && task.event ? task.event.id : task.equipment.id)}"
       data-type="${escapeHtml(task.plan.type)}"
     >
       <span>${escapeHtml(assetLabel)}</span>
@@ -3410,16 +3422,20 @@ function renderCalendarTaskChip(task, editable) {
 }
 
 function renderCalendario() {
-  const editable = canEditData();
   const horizon = Number(state.ui.calendarHorizon || 180);
-  const calendarTypeOptions = ["Todos", ...serviceCatalog().filter((type) => !isMaintenanceExemptionService(type))];
+  const planned = state.events.filter(isPlannedTask).flatMap((event) => {
+    const equipment = getEquipment(event.equipmentId);
+    return equipment && isActiveEquipment(equipment) ? [{ event, equipment, plan: event, due: event.date, ...dueInfo(event.date) }] : [];
+  });
+  const scheduled = new Set(planned.filter(({ event }) => event.planType)
+    .map(({ event }) => JSON.stringify([event.equipmentId, event.planType])));
+  const deadlines = getAllTasks().filter(({ equipment, plan }) => !scheduled.has(JSON.stringify([equipment.id, plan.type])));
+  const calendarTypeOptions = ["Todos", ...serviceCatalog(planned.map(({ event }) => event.type)).filter((type) => !isMaintenanceExemptionService(type))];
   const activeCalendarType = calendarTypeOptions.includes(state.ui.calendarType) ? state.ui.calendarType : "Todos";
   state.ui.calendarType = activeCalendarType;
-  const filteredTasks = getAllTasks().filter((task) => {
-    const matchesHorizon = task.days <= horizon || task.days < 0;
-    const matchesType = activeCalendarType === "Todos" || task.plan.type === activeCalendarType;
-    return matchesHorizon && matchesType;
-  });
+  const calendarTasks = [...planned, ...deadlines].sort((a, b) => a.days - b.days).filter((task) =>
+    activeCalendarType === "Todos" || task.plan.type === activeCalendarType);
+  const filteredTasks = calendarTasks.filter((task) => task.days <= horizon);
   const grouped = groupBy(filteredTasks, (task) => task.days < 0 ? "Vencidos" : formatMonth(task.due));
   const groupKeys = Object.keys(grouped).sort((a, b) => {
     if (a === "Vencidos") return -1;
@@ -3439,10 +3455,9 @@ function renderCalendario() {
           <select id="calendarType">${renderOptions(calendarTypeOptions, activeCalendarType)}</select>
         </div>
       </div>
-      ${editable ? `<button class="action-button" type="button" data-action="add-event">${icon("plus")} Registrar evento</button>` : `<span class="badge neutral">Modo lectura</span>`}
     </div>
 
-    ${renderQuarterCalendar(filteredTasks)}
+    ${renderQuarterCalendar(calendarTasks)}
 
     <div class="calendar-groups agenda-list">
       ${groupKeys.length ? groupKeys.map((key) => `
@@ -3466,6 +3481,7 @@ function renderDueItem(task) {
       <div>
         <div class="item-title">
           <span>${escapeHtml(task.equipment.name)}</span>
+          <span class="badge info">${task.event ? "Planificada" : "Vencimiento del plan"}</span>
           <span class="badge ${task.tone}">${escapeHtml(task.label)}</span>
           ${criticalityBadge(task.equipment.criticality)}
         </div>
@@ -3473,8 +3489,7 @@ function renderDueItem(task) {
       </div>
       ${editable ? `
         <div class="due-actions">
-          <button class="table-action secondary" type="button" title="Editar servicio planificado" data-action="edit-plan" data-id="${escapeHtml(task.equipment.id)}" data-type="${escapeHtml(task.plan.type)}">${icon("edit")}</button>
-          <button class="table-action secondary" type="button" title="Registrar este servicio" data-action="add-event" data-id="${escapeHtml(task.equipment.id)}" data-type="${escapeHtml(task.plan.type)}">${icon("plus")}</button>
+          <button class="action-button secondary" type="button" data-action="${task.event ? "edit-event" : "add-event"}" data-id="${escapeHtml(task.event?.id || task.equipment.id)}" data-type="${escapeHtml(task.plan.type)}">${task.event ? "Editar o completar" : "Agregar tarea"}</button>
         </div>
       ` : `<span class="badge neutral">Lectura</span>`}
     </div>
@@ -3503,7 +3518,6 @@ function renderBitacora() {
           <select id="eventTypeFilter">${renderOptions(eventTypeOptions, filters.type)}</select>
         </div>
       </div>
-      ${editable ? `<button class="action-button" type="button" data-action="add-event">${icon("plus")} Registrar evento</button>` : `<span class="badge neutral">Modo lectura</span>`}
     </div>
     <div class="panel pad">
       <div class="section-title">
@@ -3523,6 +3537,7 @@ function renderBitacora() {
 function getFilteredEvents() {
   const filters = state.ui.eventFilters;
   return [...state.events]
+    .filter((event) => !isPlannedTask(event))
     .filter((event) => filters.equipmentId === "Todos" || event.equipmentId === filters.equipmentId)
     .filter((event) => filters.type === "Todos" || event.type === filters.type)
     .sort((a, b) => parseLocalDate(b.date) - parseLocalDate(a.date));
@@ -3530,7 +3545,7 @@ function getFilteredEvents() {
 
 function renderTimelineItem(event) {
   const equipment = getEquipment(event.equipmentId);
-  const resultTone = event.result === "Conforme" ? "success" : event.result === "No conforme" ? "danger" : "warning";
+  const resultTone = isPlannedTask(event) ? "info" : event.result === "Conforme" ? "success" : event.result === "No conforme" ? "danger" : "warning";
   const editable = canEditData();
   return `
     <div class="timeline-item">
@@ -3635,7 +3650,7 @@ function groupCostItems(items, callback) {
 
 function actualCostForEquipment(equipmentId, year = getBudgetSettings().year || currentBudgetYear()) {
   return state.events
-    .filter((event) => event.equipmentId === equipmentId && parseLocalDate(event.date)?.getFullYear() === year)
+    .filter((event) => !isPlannedTask(event) && event.equipmentId === equipmentId && parseLocalDate(event.date)?.getFullYear() === year)
     .reduce((sum, event) => sum + Number(event.cost || 0), 0);
 }
 
@@ -3724,7 +3739,7 @@ function renderCostos() {
       const cost = state.events
       .filter((event) => {
         const date = parseLocalDate(event.date);
-        return activeIds.has(event.equipmentId) && date?.getFullYear() === metrics.budgetYear && date.getMonth() === month;
+        return !isPlannedTask(event) && activeIds.has(event.equipmentId) && date?.getFullYear() === metrics.budgetYear && date.getMonth() === month;
       })
       .reduce((sum, event) => sum + Number(event.cost || 0), 0);
     return { label: new Intl.DateTimeFormat("es-CL", { month: "short" }).format(new Date(metrics.budgetYear, month, 1)), cost };
@@ -3872,7 +3887,7 @@ function providerMetric(name, year = currentBudgetYear()) {
   const plans = equipments.flatMap((equipment) => (equipment.plans || []).filter((plan) => plan.provider === name && !isMaintenanceExemptionService(plan.type)).map((plan) => ({ equipment, plan })));
   const activePlans = plans.filter(({ equipment }) => isActiveEquipment(equipment));
   const events = state.events.filter((event) => event.provider === name);
-  const yearEvents = events.filter((event) => parseLocalDate(event.date)?.getFullYear() === Number(year));
+  const yearEvents = events.filter((event) => !isPlannedTask(event) && parseLocalDate(event.date)?.getFullYear() === Number(year));
   const overdue = activePlans.filter(({ plan }) => plan.nextDue && daysUntil(plan.nextDue) < 0);
   const upcoming90 = activePlans.filter(({ plan }) => {
     const days = daysUntil(plan.nextDue);
@@ -4346,7 +4361,7 @@ function openEquipmentModal(equipmentId) {
   `);
 }
 
-function openEventModal(equipmentId = "", type = "", eventId = "") {
+function openEventModal(equipmentId = "", type = "", eventId = "", returnToEquipment = false) {
   if (!canEditData()) {
     showToast("Tu nivel de acceso solo permite visualizar.");
     return;
@@ -4354,12 +4369,16 @@ function openEventModal(equipmentId = "", type = "", eventId = "") {
   const existingEvent = eventId ? state.events.find((event) => event.id === eventId) : null;
   const selectedEquipmentId = existingEvent?.equipmentId || equipmentId;
   const selectedEquipment = selectedEquipmentId ? getEquipment(selectedEquipmentId) : null;
-  const selectedType = existingEvent?.type || type || "Mantenimiento proveedor";
-  const selectedPlan = selectedEquipment ? getPlanFor(selectedEquipment, selectedType) : null;
+  const selectedType = existingEvent?.type || type || (selectedEquipment && maintenancePlansFor(selectedEquipment)[0]?.type) || "Mantenimiento proveedor";
+  const selectedPlanType = existingEvent ? existingEvent.planType || ""
+    : selectedEquipment && isScheduledServicePlan(getPlanFor(selectedEquipment, selectedType)) ? selectedType : "";
+  const selectedPlan = selectedEquipment && selectedPlanType ? getPlanFor(selectedEquipment, selectedPlanType) : null;
+  const pendingFollowUp = existingEvent && state.events.find((event) => event.id === `next-task-${existingEvent.id}` && isPlannedTask(event));
+  const linkedPlanOptions = selectedEquipment ? (selectedEquipment.plans || []).filter(isScheduledServicePlan).map((plan) => plan.type) : [];
   openModal(`
-    <form class="modal small" data-form="event" data-id="${escapeHtml(existingEvent?.id || "")}">
+    <form class="modal small" data-form="event" data-id="${escapeHtml(existingEvent?.id || "")}" data-return-to-equipment="${returnToEquipment}">
       <div class="modal-header">
-        <h2>${existingEvent ? "Editar evento de equipo" : "Registrar evento de equipo"}</h2>
+        <h2>${isPlannedTask(existingEvent) ? "Editar o completar tarea" : existingEvent ? "Editar tarea" : "Agregar tarea"}</h2>
         <button class="icon-button secondary" type="button" title="Cerrar" data-action="close-modal">${icon("x")}</button>
       </div>
       <div class="modal-body">
@@ -4371,25 +4390,90 @@ function openEventModal(equipmentId = "", type = "", eventId = "") {
               ${state.equipments.map((equipment) => `<option value="${escapeHtml(equipment.id)}" ${equipment.id === selectedEquipmentId ? "selected" : ""}>${escapeHtml(equipment.name)} · ${escapeHtml(equipment.assetTag)}</option>`).join("")}
             </select>
           </div>
-          ${selectField("Tipo de evento", "type", eventTypeCatalog([selectedType]), selectedType)}
-          ${field("Fecha", "date", existingEvent?.date || dateInputValue(), "date", true)}
-          ${selectField("Resultado", "result", ["Conforme", "Observación", "No conforme", "En proceso"], existingEvent?.result || "Conforme")}
+          ${selectField("Tipo de tarea", "type", eventTypeCatalog([...serviceCatalog().filter((item) => !isMaintenanceExemptionService(item)), selectedType]), selectedType)}
+          <div class="control">
+            <label for="result">Estado / resultado</label>
+            <select id="result" name="result" required>
+              ${renderOptions([...new Set([!existingEvent || isPlannedTask(existingEvent) ? "Planificado" : "", "Conforme", "Observación", "No conforme", existingEvent?.result].filter(Boolean))], existingEvent?.result || "Planificado", (value) => ({ Conforme: "Completada · Conforme", "Observación": "Completada · Con observaciones", "No conforme": "Completada · No conforme" })[value] || value)}
+            </select>
+          </div>
+          <div class="control full">
+            <label for="eventPlanType">Vincular al plan maestro</label>
+            <select id="eventPlanType" name="planType">
+              <option value="">Actividad independiente, sin cambiar el plan</option>
+              ${selectedPlanType && !linkedPlanOptions.includes(selectedPlanType) ? `<option value="${escapeHtml(selectedPlanType)}" selected>${escapeHtml(selectedPlanType)} (ya no está en el plan)</option>` : ""}
+              ${linkedPlanOptions.map((planType) => `<option value="${escapeHtml(planType)}" ${planType === selectedPlanType ? "selected" : ""}>${escapeHtml(planType)}</option>`).join("")}
+            </select>
+            <span class="field-hint">Planificar no modifica la vigencia del servicio.</span>
+          </div>
+          ${field("Fecha", "date", existingEvent?.date || (selectedPlan?.nextDue >= dateInputValue() ? selectedPlan.nextDue : dateInputValue()), "date", true)}
           ${field("Costo CLP", "cost", existingEvent?.cost ?? selectedPlan?.cost ?? 0, "number", true)}
-          ${field("Proveedor / ejecutor", "provider", existingEvent?.provider || selectedPlan?.provider || selectedEquipment?.provider || "", "text", true)}
-          ${field("Nuevo vencimiento", "nextDue", "", "date", false)}
+          ${field("Proveedor / ejecutor", "provider", existingEvent?.provider ?? (selectedPlan?.provider || selectedEquipment?.provider || ""))}
+          <div class="control full" data-plan-update hidden>
+            <label><input type="checkbox" name="updatePlan" style="width:auto;min-height:0" ${pendingFollowUp || (selectedPlan && isPlannedTask(existingEvent)) ? "checked" : ""} /> <span data-next-label>Definir próximo vencimiento</span></label>
+          </div>
+          <div class="control full" data-event-due hidden>
+            <label for="eventNextDue">Próximo vencimiento</label>
+            <input id="eventNextDue" name="nextDue" type="date" value="${escapeHtml(pendingFollowUp?.date || "")}" />
+          </div>
           <div class="control full">
             <label for="eventNotes">Detalle del evento</label>
-            <textarea id="eventNotes" name="notes" placeholder="Resultado, número de certificado, repuestos, observaciones, acciones pendientes..." required>${escapeHtml(existingEvent?.notes || "")}</textarea>
+            <textarea id="eventNotes" name="notes" placeholder="Resultado, número de certificado, repuestos, observaciones, acciones pendientes...">${escapeHtml(existingEvent?.notes || "")}</textarea>
           </div>
         </div>
       </div>
       <div class="modal-footer">
         ${existingEvent ? `<button class="action-button danger-soft" type="button" data-action="delete-event-modal" data-id="${escapeHtml(existingEvent.id)}">${icon("trash")} Eliminar</button>` : "<span></span>"}
         <button class="action-button secondary" type="button" data-action="close-modal">Cancelar</button>
-        <button class="action-button" type="submit">${icon("save")} ${existingEvent ? "Actualizar evento" : "Guardar evento"}</button>
+        <button class="action-button" type="submit">${icon("save")} Guardar tarea</button>
       </div>
     </form>
   `);
+  syncEventPlanForm($("#modalRoot form[data-form='event']"));
+}
+
+function syncEventPlanForm(form, changedField = "") {
+  const { equipmentId, planType, type, result, updatePlan, nextDue, date, cost, provider } = form.elements;
+  const equipment = getEquipment(equipmentId.value);
+  if (changedField === "equipmentId") {
+    planType.innerHTML = '<option value="">Actividad independiente, sin cambiar el plan</option>'
+      + (equipment?.plans || []).filter(isScheduledServicePlan).map((plan) =>
+        `<option value="${escapeHtml(plan.type)}">${escapeHtml(plan.type)}</option>`).join("");
+    updatePlan.checked = false;
+    nextDue.value = "";
+  }
+  if (["type", "equipmentId"].includes(changedField)) {
+    planType.value = [...planType.options].some((option) => option.value === type.value) ? type.value : "";
+    changedField = "planType";
+  }
+  const plan = equipment && getPlanFor(equipment, planType.value);
+  if (changedField === "planType") {
+    if (plan && !form.dataset.id) {
+      if (!Number(cost.value)) cost.value = plan.cost || 0;
+      if (!provider.value) provider.value = plan.provider || equipment.provider || "";
+    }
+    updatePlan.checked = Boolean(plan && isPlannedTask(state.events.find((item) => item.id === form.dataset.id)));
+    nextDue.value = "";
+  }
+  const planned = result.value === "Planificado";
+  if (changedField === "result" && !planned && date.value > dateInputValue()) date.value = dateInputValue();
+  const eligible = !planned && result.value !== "En proceso";
+  form.querySelector('label[for="date"]').textContent = planned ? "Fecha planificada" : "Fecha de ejecución";
+  form.querySelector('label[for="cost"]').textContent = planned ? "Costo estimado CLP" : "Costo real CLP";
+  form.querySelector("[data-next-label]").textContent = plan && result.value === "Conforme"
+    ? "Actualizar próximo vencimiento del plan" : "Definir próximo vencimiento y agregar seguimiento a Agenda";
+  const active = eligible && updatePlan.checked;
+  form.querySelector("[data-plan-update]").hidden = !eligible;
+  form.querySelector("[data-event-due]").hidden = !active;
+  updatePlan.disabled = !eligible;
+  nextDue.disabled = !active;
+  nextDue.required = active;
+  if (active && plan && (!nextDue.value || changedField === "date")) {
+    const executed = parseLocalDate(date.value);
+    nextDue.value = form.dataset.id && !isPlannedTask(state.events.find((item) => item.id === form.dataset.id)) && plan.nextDue > date.value && changedField !== "date"
+      ? plan.nextDue
+      : executed ? dateKey(addMonthsPreservingDay(executed, plan.frequencyMonths)) : "";
+  }
 }
 
 function openPlanModal(equipmentId, planType = "") {
@@ -4407,7 +4491,7 @@ function openPlanModal(equipmentId, planType = "") {
   openModal(`
     <form class="modal small" data-form="plan" data-equipment-id="${escapeHtml(equipment.id)}" data-original-type="${escapeHtml(existingPlan?.type || "")}">
       <div class="modal-header">
-        <h2>${existingPlan ? "Editar servicio planificado" : "Agregar servicio planificado"}</h2>
+        <h2>${existingPlan ? "Editar regla del plan maestro" : "Agregar regla al plan maestro"}</h2>
         <button class="icon-button secondary" type="button" title="Cerrar" data-action="close-modal">${icon("x")}</button>
       </div>
       <div class="modal-body">
@@ -4418,9 +4502,9 @@ function openPlanModal(equipmentId, planType = "") {
             <label for="frequencyMonths">Frecuencia</label>
             <select id="frequencyMonths" name="frequencyMonths" required>${renderOptions(["1", "3", "6", "12", "24", "36"], String(draft.frequencyMonths), formatFrequency)}</select>
           </div>
-          ${field("Próximo vencimiento", "nextDue", draft.nextDue, "date", true)}
-          ${field("Último servicio", "lastDone", draft.lastDone || "", "date", false)}
-          ${field("Costo CLP", "cost", draft.cost, "number", true)}
+          ${field("Vencimiento de referencia", "nextDue", draft.nextDue, "date", true)}
+          ${field("Última ejecución de referencia", "lastDone", draft.lastDone || "", "date", false)}
+          ${field("Costo de referencia CLP", "cost", draft.cost, "number", true)}
           ${field("Proveedor", "provider", draft.provider || equipment.provider, "text", true, "wide")}
           <div class="control full">
             <label for="contract">Contrato / referencia</label>
@@ -4434,7 +4518,7 @@ function openPlanModal(equipmentId, planType = "") {
       <div class="modal-footer">
         ${existingPlan ? `<button class="action-button danger-soft" type="button" data-action="delete-plan-modal">${icon("trash")} Eliminar servicio</button>` : "<span></span>"}
         <button class="action-button secondary" type="button" data-action="close-modal">Cancelar</button>
-        <button class="action-button" type="submit">${icon("save")} Guardar servicio</button>
+        <button class="action-button" type="submit">${icon("save")} Guardar regla</button>
       </div>
     </form>
   `);
@@ -4898,11 +4982,72 @@ async function saveEventForm(form) {
     result: data.result,
     cost: Number(data.cost || 0),
     provider: data.provider.trim(),
-    notes: data.notes.trim()
+    notes: data.notes.trim(),
+    planType: data.planType || ""
   };
 
+  const linkedPlan = event.planType ? getPlanFor(equipment, event.planType) : null;
+  const planned = isPlannedTask(event);
+  if (!planned && event.date > dateInputValue() && event.date !== previousEvent?.date) {
+    showToast("Para registrar una ejecución, indica una fecha de hoy o anterior.");
+    return;
+  }
+  if (event.planType && !isScheduledServicePlan(linkedPlan) &&
+    !(previousEvent?.equipmentId === event.equipmentId && previousEvent.planType === event.planType)) {
+    showToast("El servicio vinculado ya no existe en el plan maestro. Selecciona otro o deja la actividad independiente.");
+    return;
+  }
+  const hasNextDue = !planned && event.result !== "En proceso" && Boolean(data.updatePlan);
+  if (hasNextDue && (!data.nextDue || data.nextDue <= event.date)) {
+    showToast("El próximo vencimiento debe ser posterior a la fecha de ejecución.");
+    return;
+  }
+  const planPatch = hasNextDue && isScheduledServicePlan(linkedPlan) && event.result === "Conforme"
+    ? { last_done: event.date, next_due: data.nextDue } : null;
+  if (planPatch && linkedPlan.lastDone > event.date && !(previousEvent?.equipmentId === equipment.id && previousEvent.planType === linkedPlan.type && previousEvent.date === linkedPlan.lastDone)) {
+    showToast("El registro histórico no puede reemplazar una ejecución más reciente. Desmarca la actualización del plan para guardarlo.");
+    return;
+  }
+  const followUpId = `next-task-${event.id}`;
+  const previousFollowUp = hasNextDue && !planPatch ? state.events.find((item) => item.id === followUpId) : null;
+  if (previousFollowUp && !isPlannedTask(previousFollowUp)) {
+    showToast("El seguimiento ya fue ejecutado. Desmarca el seguimiento para guardar esta edición.");
+    return;
+  }
+  const followUp = hasNextDue && !planPatch ? {
+    ...event, id: followUpId, date: data.nextDue, result: "Planificado",
+    cost: previousFollowUp?.cost ?? linkedPlan?.cost ?? 0,
+    provider: previousFollowUp?.provider ?? event.provider,
+    notes: previousFollowUp?.notes ?? "Seguimiento de la tarea anterior."
+  } : null;
+  const sameDateRecords = state.events.filter((item) => item.id !== event.id && item.id !== followUp?.id &&
+    item.equipmentId === event.equipmentId && (item.date === event.date || (hasNextDue && item.date === data.nextDue)));
+  const sameDatePlans = (equipment.plans || []).filter((plan) => isScheduledServicePlan(plan) &&
+    plan !== linkedPlan && (plan.nextDue === event.date || (planPatch && plan.nextDue === data.nextDue)));
+  if (sameDateRecords.length || sameDatePlans.length) {
+    const conflicts = [...sameDateRecords.map((item) => `${item.type} (${formatDate(item.date)})`),
+      ...sameDatePlans.map((plan) => `${plan.type} (${formatDate(plan.nextDue)})`)];
+    if (!confirm(`Hay otras actividades del equipo en las fechas seleccionadas: ${conflicts.join(", ")}. ¿Guardar igualmente?`)) return;
+  }
+  const previousExecution = planPatch && isMaintenanceService(linkedPlan.type) &&
+    linkedPlan.lastDone && linkedPlan.lastDone < event.date &&
+    !state.events.some((item) => !isPlannedTask(item) && item.equipmentId === equipment.id && item.date === linkedPlan.lastDone &&
+      (item.planType === linkedPlan.type || serviceText(item.type) === serviceText(linkedPlan.type)))
+    ? {
+      id: JSON.stringify(["plan-history", equipment.id, linkedPlan.type, linkedPlan.lastDone]),
+      equipmentId: equipment.id, type: linkedPlan.type, planType: linkedPlan.type,
+      date: linkedPlan.lastDone, userId: null, userName: "Plan maestro",
+      result: "Última fecha del plan maestro", provider: linkedPlan.provider,
+      cost: 0, notes: "Fecha histórica conservada desde el plan maestro. Costo no informado."
+    } : null;
+
+  const savedMessage = planned ? "Tarea planificada." : followUp ? "Tarea guardada en la bitácora y seguimiento planificado." : "Tarea guardada en la bitácora.";
   if (remoteMode) {
     try {
+      if (previousExecution) {
+        requireSupabaseResponse(await supabaseClient.from("equipment_events")
+          .upsert(eventToRow(previousExecution), { onConflict: "id", ignoreDuplicates: true }));
+      }
       if (previousEvent) {
         requireSupabaseResponse(await supabaseClient
           .from("equipment_events")
@@ -4912,26 +5057,25 @@ async function saveEventForm(form) {
         requireSupabaseResponse(await supabaseClient.from("equipment_events").insert(eventToRow(event)));
       }
 
-      const plan = getPlanFor(equipment, data.type);
-      if (plan) {
-        const planPatch = {
-          last_done: data.date,
-          updated_at: new Date().toISOString()
-        };
-        if (data.nextDue) planPatch.next_due = data.nextDue;
-        if (event.cost > 0) planPatch.cost = event.cost;
-        if (event.provider) planPatch.provider = event.provider;
+      if (followUp) {
+        const query = supabaseClient.from("equipment_events");
+        requireSupabaseResponse(await (previousFollowUp
+          ? query.update(eventToRow(followUp)).eq("id", followUp.id).eq("result", "Planificado")
+          : query.upsert(eventToRow(followUp), { onConflict: "id", ignoreDuplicates: true })));
+      }
+
+      if (planPatch) {
         requireSupabaseResponse(await supabaseClient
           .from("service_plans")
           .update(planPatch)
           .eq("equipment_id", equipment.id)
-          .eq("service_type", data.type));
+          .eq("service_type", linkedPlan.type));
       }
 
       let nextStatus = equipment.status;
-      if (data.result === "No conforme") nextStatus = "Observación";
-      if (data.result === "En proceso") nextStatus = "En mantenimiento";
-      if (data.result === "Conforme" && equipment.status === "En mantenimiento") nextStatus = "Operativo";
+      if (!previousEvent && linkedPlan && data.result === "No conforme") nextStatus = "Observación";
+      if (!previousEvent && linkedPlan && data.result === "En proceso") nextStatus = "En mantenimiento";
+      if (!previousEvent && planPatch && equipment.status === "En mantenimiento") nextStatus = "Operativo";
       if (nextStatus !== equipment.status) {
         requireSupabaseResponse(await supabaseClient
           .from("equipments")
@@ -4943,7 +5087,8 @@ async function saveEventForm(form) {
       saveState();
       closeModal();
       await refreshRemoteState();
-      showToast(previousEvent ? "Evento actualizado en la bitácora." : "Evento registrado en la bitácora.");
+      if (form.dataset.returnToEquipment === "true") openEquipmentDetailModal(equipment.id);
+      showToast(savedMessage);
     } catch (error) {
       showToast(error.message || "No se pudo guardar el evento.");
     }
@@ -4955,23 +5100,23 @@ async function saveEventForm(form) {
   } else {
     state.events.unshift(event);
   }
+  if (followUp) state.events = [followUp, ...state.events.filter((item) => item.id !== followUp.id)];
 
-  const plan = getPlanFor(equipment, data.type);
-  if (plan) {
-    plan.lastDone = data.date;
-    if (data.nextDue) plan.nextDue = data.nextDue;
-    if (event.cost > 0) plan.cost = event.cost;
-    if (event.provider) plan.provider = event.provider;
+  if (planPatch) {
+    if (previousExecution) state.events.push(previousExecution);
+    linkedPlan.lastDone = planPatch.last_done;
+    linkedPlan.nextDue = planPatch.next_due;
   }
-  if (data.result === "No conforme") equipment.status = "Observación";
-  if (data.result === "En proceso") equipment.status = "En mantenimiento";
-  if (data.result === "Conforme" && equipment.status === "En mantenimiento") equipment.status = "Operativo";
+  if (!previousEvent && linkedPlan && data.result === "No conforme") equipment.status = "Observación";
+  if (!previousEvent && linkedPlan && data.result === "En proceso") equipment.status = "En mantenimiento";
+  if (!previousEvent && planPatch && equipment.status === "En mantenimiento") equipment.status = "Operativo";
 
   state.ui.selectedEquipmentId = equipment.id;
   saveState();
   closeModal();
   renderApp();
-  showToast(previousEvent ? "Evento actualizado en la bitácora." : "Evento registrado en la bitácora.");
+  if (form.dataset.returnToEquipment === "true") openEquipmentDetailModal(equipment.id);
+  showToast(savedMessage);
 }
 
 async function savePlanForm(form) {
@@ -5009,6 +5154,9 @@ async function savePlanForm(form) {
   }
 
   const exempt = isMaintenanceExemptionService(type);
+  const conflicts = otherPlans.filter((plan) => isScheduledServicePlan(plan) && plan.nextDue === data.nextDue);
+  if (!exempt && data.nextDue !== getPlanFor(equipment, originalType)?.nextDue && conflicts.length &&
+    !confirm(`El equipo ya tiene servicios para el ${formatDate(data.nextDue)}: ${conflicts.map((plan) => plan.type).join(", ")}. ¿Guardar igualmente?`)) return;
   const plan = {
     type,
     frequencyMonths: exempt ? 12 : Number(data.frequencyMonths || 12),
@@ -6165,8 +6313,14 @@ function setupEventListeners() {
       openEquipmentModal(id);
     }
     if (action === "add-event") {
+      const returnToEquipment = Boolean(actionTarget.closest(".equipment-detail-modal"));
       closeModal();
-      openEventModal(id || "", type || "");
+      openEventModal(id || "", type || "", "", returnToEquipment);
+    }
+    if (action === "edit-event") {
+      const returnToEquipment = Boolean(actionTarget.closest(".equipment-detail-modal"));
+      closeModal();
+      openEventModal("", "", id, returnToEquipment);
     }
     if (action === "view-equipment-events") {
       closeModal();
@@ -6192,6 +6346,11 @@ function setupEventListeners() {
 
   $("#modalRoot").addEventListener("change", (event) => {
     const target = event.target;
+    const eventForm = target.closest("form[data-form='event']");
+    if (eventForm && ["equipmentId", "type", "planType", "result", "date", "updatePlan"].includes(target.name)) {
+      syncEventPlanForm(eventForm, target.name);
+      return;
+    }
     if (!target.matches("select[name='type'], select[name$='_type']")) return;
     const container = target.closest("[data-plan-row]") || target.closest('form[data-form="plan"]');
     if (container) syncPlanExemptionControls(container);
